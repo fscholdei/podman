@@ -23,6 +23,7 @@ import (
 	"github.com/containers/podman/v6/libpod/shutdown"
 	"github.com/containers/podman/v6/pkg/domain/entities"
 	"github.com/containers/podman/v6/pkg/domain/entities/reports"
+	"github.com/containers/podman/v6/pkg/nixstore"
 	"github.com/containers/podman/v6/pkg/rootless"
 	"github.com/containers/podman/v6/pkg/systemd"
 	"github.com/containers/podman/v6/pkg/util"
@@ -120,6 +121,11 @@ type Runtime struct {
 
 	// secretsManager manages secrets
 	secretsManager *secrets.SecretsManager
+
+	// nixStoreManager manages Nix store operations
+	nixStoreManager *nixstore.Manager
+	// nixImageLoader loads images from Nix store
+	nixImageLoader *nixstore.ImageLoader
 }
 
 // SetXdgDirs ensures the XDG_RUNTIME_DIR env and XDG_CONFIG_HOME variables are set.
@@ -921,12 +927,34 @@ func (r *Runtime) configureStore() error {
 	// Run the libimage events routine.
 	r.libimageEvents()
 
+	// Initialize Nix store manager if enabled
+	nixManager, err := nixstore.NewManager()
+	if err != nil {
+		logrus.Warnf("Failed to initialize Nix store manager: %v", err)
+	} else {
+		r.nixStoreManager = nixManager
+		if nixManager.IsEnabled() {
+			r.nixImageLoader = nixstore.NewImageLoader(nixManager, store)
+			logrus.Info("Nix store integration enabled")
+		}
+	}
+
 	return nil
 }
 
 // LibimageRuntime ... to allow for a step-by-step migration to libimage.
 func (r *Runtime) LibimageRuntime() *libimage.Runtime {
 	return r.libimageRuntime
+}
+
+// NixStoreManager returns the Nix store manager if enabled
+func (r *Runtime) NixStoreManager() *nixstore.Manager {
+	return r.nixStoreManager
+}
+
+// NixImageLoader returns the Nix image loader if enabled
+func (r *Runtime) NixImageLoader() *nixstore.ImageLoader {
+	return r.nixImageLoader
 }
 
 // SystemContext returns the imagecontext

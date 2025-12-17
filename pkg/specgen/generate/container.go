@@ -41,7 +41,19 @@ func getImageFromSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGen
 		return image, resolvedName, inspectData, nil
 	}
 
-	// Need to look up image.
+	// Try to load image from Nix store first if enabled
+	if nixLoader := r.NixImageLoader(); nixLoader != nil {
+		nixImageName, err := nixLoader.TryLoadFromNixStore(ctx, s.Image)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("failed to load image from Nix store: %w", err)
+		}
+		if nixImageName != "" {
+			logrus.Infof("Image %q resolved from Nix store to %q", s.Image, nixImageName)
+			s.Image = nixImageName
+		}
+	}
+
+	// Need to look up image (normal path or after Nix store processing).
 	lookupOptions := &libimage.LookupImageOptions{ManifestList: true}
 	image, resolvedName, err := r.LibimageRuntime().LookupImage(s.Image, lookupOptions)
 	if err != nil {
