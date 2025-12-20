@@ -70,7 +70,8 @@ func (m *Manager) ResolveImage(ctx context.Context, imageName string) (string, e
 	logrus.Infof("Resolving image %s using nix", imageName)
 
 	// The expression to evaluate, which imports the images file, selects the attribute, and pulls the image
-	nixExpr := fmt.Sprintf("with import <nixpkgs> {}; (pkgs.dockerTools.pullImage ((import %s).%s))", m.imagesNixPath, imageName)
+	imageAttr := strings.TrimPrefix(imageName, "localhost/")
+	nixExpr := fmt.Sprintf("with import <nixpkgs> {}; (pkgs.dockerTools.pullImage ((import %s).%s))", m.imagesNixPath, imageAttr)
 
 	cmd := exec.CommandContext(ctx, m.nixPath, "build", "--impure", "--expr", nixExpr, "--print-out-paths")
 
