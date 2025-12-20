@@ -2,7 +2,6 @@ package nixstore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,133 +11,82 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NixPrefetchResult represents the output from nix-prefetch-docker
-type NixPrefetchResult struct {
-	ImageName   string `json:"imageName"`
-	ImageDigest string `json:"imageDigest"`
-	Sha256      string `json:"sha256"`
-	ImageTag    string `json:"imageTag"`
-}
-
 // Manager handles Nix store operations
 type Manager struct {
-	nixPrefetchDockerPath string
-	cacheDir              string
+	nixPath       string
+	imagesNixPath string
 }
 
 // NewManager creates a new Nix store manager
 func NewManager() (*Manager, error) {
-	path, err := exec.LookPath("nix-prefetch-docker")
+	nixPath, err := exec.LookPath("nix")
 	if err != nil {
-		// If nix-prefetch-docker is not found, we don't enable the Nix store backend.
+		// If nix is not found, we don't enable the Nix store backend.
 		// This is not a fatal error.
-		logrus.Info("nix-prefetch-docker not found in PATH, Nix store backend is disabled.")
-		return &Manager{nixPrefetchDockerPath: ""}, nil
+		logrus.Info("nix not found in PATH, Nix store backend is disabled.")
+		return &Manager{nixPath: ""}, nil
 	}
 
-	// Initialize cache directory
-	cacheDir := ""
-	userCacheDir, err := os.UserCacheDir()
-	if err == nil {
-		cacheDir = filepath.Join(userCacheDir, "podman", "nixstore")
-		if err := os.MkdirAll(cacheDir, 0755); err != nil {
-			logrus.Warnf("Failed to create Nix store cache directory: %v", err)
-			cacheDir = "" // Disable caching if directory creation fails
+	// Find images.nix in standard locations
+	var imagesNixPath string
+	if configDir, err := os.UserConfigDir(); err == nil {
+		userPath := filepath.Join(configDir, "podman", "images.nix")
+		logrus.Infof("Checking for images.nix in %s", userPath)
+		if _, err := os.Stat(userPath); err == nil {
+			imagesNixPath = userPath
 		}
-	} else {
-		logrus.Warnf("Failed to get user cache directory: %v", err)
 	}
 
-	logrus.Info("Nix store backend enabled, found nix-prefetch-docker at: ", path)
-	if cacheDir != "" {
-		logrus.Infof("Nix store cache enabled at: %s", cacheDir)
+	if imagesNixPath == "" {
+		systemPath := "/etc/podman/images.nix"
+		logrus.Infof("Checking for images.nix in %s", systemPath)
+		if _, err := os.Stat(systemPath); err == nil {
+			imagesNixPath = systemPath
+		}
 	}
 
-	return &Manager{nixPrefetchDockerPath: path, cacheDir: cacheDir}, nil
+	if imagesNixPath == "" {
+		logrus.Info("images.nix not found, Nix store backend is disabled.")
+		return &Manager{nixPath: ""}, nil
+	}
+
+	logrus.Info("Nix store backend enabled, found nix at: ", nixPath)
+	logrus.Infof("Using Nix images file: %s", imagesNixPath)
+
+	return &Manager{nixPath: nixPath, imagesNixPath: imagesNixPath}, nil
 }
 
 // IsEnabled returns whether Nix store backend is enabled
 func (m *Manager) IsEnabled() bool {
-	return m.nixPrefetchDockerPath != ""
+	return m.nixPath != "" && m.imagesNixPath != ""
 }
 
-// PrefetchImage fetches an image from Docker registry into Nix store
-func (m *Manager) PrefetchImage(ctx context.Context, imageName string) (string, error) {
+// ResolveImage resolves an image name to its Nix store path
+func (m *Manager) ResolveImage(ctx context.Context, imageName string) (string, error) {
 	if !m.IsEnabled() {
 		return "", fmt.Errorf("Nix store backend is not enabled")
 	}
 
-	// If the image is a short name, assume the user wants to pull from
-	// docker.io, which is the default for nix-prefetch-docker.
-	if !strings.Contains(imageName, "/") {
-		imageName = "docker.io/library/" + imageName
-		logrus.Infof("Short name detected, resolving to %s for Nix store", imageName)
-	}
+	logrus.Infof("Resolving image %s using nix", imageName)
 
-	// Check cache first
-	if m.cacheDir != "" {
-		cacheKey := strings.ReplaceAll(imageName, "/", "_")
-		cacheFile := filepath.Join(m.cacheDir, cacheKey+".json")
-		if data, err := os.ReadFile(cacheFile); err == nil {
-			var result NixPrefetchResult
-			if err := json.Unmarshal(data, &result); err == nil {
-				logrus.Infof("Found cached Nix store info for %s", imageName)
-				return result.ImageName, nil
-			}
-		}
-	}
+	// The expression to evaluate, which imports the images file, selects the attribute, and pulls the image
+	nixExpr := fmt.Sprintf("with import <nixpkgs> {}; (pkgs.dockerTools.pullImage ((import %s).%s))", m.imagesNixPath, imageName)
 
-	logrus.Infof("Prefetching image %s using nix-prefetch-docker", imageName)
-
-	// Parse image name to extract repository and tag
-	parts := strings.Split(imageName, ":")
-	repository := parts[0]
-	tag := "latest"
-	if len(parts) > 1 {
-		tag = parts[1]
-	}
-
-	// Remove registry prefix if present (nix-prefetch-docker doesn't need it for docker.io)
-	repository = strings.TrimPrefix(repository, "docker.io/")
-
-	// Build nix-prefetch-docker command
-	// nix-prefetch-docker --image-name <name> --image-tag <tag> --json
-	cmd := exec.CommandContext(ctx, m.nixPrefetchDockerPath,
-		"--image-name", repository,
-		"--image-tag", tag,
-		"--json")
+	cmd := exec.CommandContext(ctx, m.nixPath, "build", "--impure", "--expr", nixExpr, "--print-out-paths")
 
 	logrus.Debugf("Running: %s", cmd.String())
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("nix-prefetch-docker failed: %w, stderr: %s", err, string(ee.Stderr))
-		}
-		return "", fmt.Errorf("nix-prefetch-docker failed: %w", err)
+		return "", fmt.Errorf("nix build failed for image %q: %w, output: %s", imageName, err, string(output))
 	}
 
-	var result NixPrefetchResult
-	if err := json.Unmarshal(output, &result); err != nil {
-		return "", fmt.Errorf("failed to parse nix-prefetch-docker output: %w", err)
+	storePath := strings.TrimSpace(string(output))
+	if storePath == "" {
+		return "", fmt.Errorf("nix build for image %q produced an empty store path", imageName)
 	}
 
-	// Save to cache
-	if m.cacheDir != "" {
-		cacheKey := strings.ReplaceAll(imageName, "/", "_")
-		cacheFile := filepath.Join(m.cacheDir, cacheKey+".json")
-		data, err := json.MarshalIndent(&result, "", "  ")
-		if err != nil {
-			logrus.Warnf("Failed to marshal nix-prefetch-docker result for caching: %v", err)
-		} else {
-			if err := os.WriteFile(cacheFile, data, 0644); err != nil {
-				logrus.Warnf("Failed to write to Nix store cache: %v", err)
-			}
-		}
-	}
-
-	// The result gives us the information to build a Nix derivation, which when built
-	// will produce the image in the Nix store. The image name podman should use is
-	// what nix-prefetch-docker returns.
-	return result.ImageName, nil
+	// nix build can print other things to stdout, so we take the last line
+	lines := strings.Split(storePath, "\n")
+	return lines[len(lines)-1], nil
 }
