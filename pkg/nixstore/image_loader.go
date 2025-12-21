@@ -3,6 +3,7 @@ package nixstore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"go.podman.io/common/libimage"
@@ -64,12 +65,16 @@ func (l *ImageLoader) LoadImage(ctx context.Context, imageName, storePath string
 		return nil, fmt.Errorf("image with ID %s not found after load", ids[0])
 	}
 
-	// Tag the image with the requested name if not already tagged
-	if err := loadedImage.Tag(imageName); err != nil {
-		return nil, fmt.Errorf("failed to tag image %s with name %s: %w", loadedImage.ID(), imageName, err)
+	// Tag the image with the requested name, adding nix/ prefix if it's not there
+	nixImageName := strings.TrimPrefix(imageName, "localhost/")
+	if !strings.HasPrefix(nixImageName, "nix/") {
+		nixImageName = "nix/" + nixImageName
+	}
+	if err := loadedImage.Tag(nixImageName); err != nil {
+		return nil, fmt.Errorf("failed to tag image %s with name %s: %w", loadedImage.ID(), nixImageName, err)
 	}
 
-	logrus.Infof("Successfully loaded and tagged image %s as %s from Nix store", loadedImage.ID(), imageName)
+	logrus.Infof("Successfully loaded and tagged image %s as %s from Nix store", loadedImage.ID(), nixImageName)
 	return loadedImage, nil
 }
 
@@ -97,11 +102,18 @@ func (l *ImageLoader) TryLoadFromNixStore(ctx context.Context, imageName string)
 		return "", fmt.Errorf("failed to load image from Nix store path %s: %w", storePath, err)
 	}
 
-	// Tag the image with the original name
-	if err := loadedImage.Tag(imageName); err != nil {
-		return "", fmt.Errorf("failed to tag image: %w", err)
+	// The image is now loaded and tagged. We need to return one of its names.
+	// The tag with nix/ prefix should be preferred.
+	for _, name := range loadedImage.Names() {
+		if strings.HasPrefix(name, "nix/") {
+			return name, nil
+		}
 	}
 
-	logrus.Infof("Successfully loaded image %s from Nix store", imageName)
-	return loadedImage.Names()[0], nil
+	// Fallback to the first name if no nix/ prefix is found (should not happen)
+	if len(loadedImage.Names()) > 0 {
+		return loadedImage.Names()[0], nil
+	}
+
+	return "", fmt.Errorf("loaded image %s has no names", loadedImage.ID())
 }
