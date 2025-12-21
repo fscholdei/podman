@@ -146,9 +146,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	imageName := args[0]
-	if !strings.Contains(imageName, "/") {
-		imageName = "localhost/" + imageName
-	}
+	//if !strings.Contains(imageName, "/") {
+	//	imageName = "localhost/" + imageName
+	//}
 	rawImageName := ""
 	if !cliVals.RootFS {
 		rawImageName = args[0]
