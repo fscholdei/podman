@@ -2,9 +2,9 @@ package nixstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -13,61 +13,74 @@ import (
 
 // Manager handles Nix store operations
 type Manager struct {
-	nixPath       string
-	imagesNixPath string
+	imagesJSONPath string
 }
 
 // NewManager creates a new Nix store manager
 func NewManager() (*Manager, error) {
-	nixPath, err := exec.LookPath("nix")
-	if err != nil {
-		// If nix is not found, we don't enable the Nix store backend.
-		// This is not a fatal error.
-		logrus.Info("nix not found in PATH, Nix store backend is disabled.")
-		return &Manager{nixPath: ""}, nil
-	}
-
-	// Find images.nix in standard locations
-	var imagesNixPath string
+	// Find images.json in standard locations
+	var imagesJSONPath string
 	if configDir, err := os.UserConfigDir(); err == nil {
-		userPath := filepath.Join(configDir, "podman", "images.nix")
-		logrus.Infof("Checking for images.nix in %s", userPath)
+		userPath := filepath.Join(configDir, "podman", "images.json")
+		logrus.Infof("Checking for images.json in %s", userPath)
 		if _, err := os.Stat(userPath); err == nil {
-			imagesNixPath = userPath
+			imagesJSONPath = userPath
 		}
 	}
 
-	if imagesNixPath == "" {
-		systemPath := "/etc/podman/images.nix"
-		logrus.Infof("Checking for images.nix in %s", systemPath)
+	if imagesJSONPath == "" {
+		systemPath := "/etc/podman/images.json"
+		logrus.Infof("Checking for images.json in %s", systemPath)
 		if _, err := os.Stat(systemPath); err == nil {
-			imagesNixPath = systemPath
+			imagesJSONPath = systemPath
 		}
 	}
 
-	if imagesNixPath == "" {
-		logrus.Info("images.nix not found, Nix store backend is disabled.")
-		return &Manager{nixPath: ""}, nil
+	if imagesJSONPath == "" {
+		logrus.Info("images.json not found, Nix store backend is disabled.")
+		return &Manager{}, nil
 	}
 
-	logrus.Info("Nix store backend enabled, found nix at: ", nixPath)
-	logrus.Infof("Using Nix images file: %s", imagesNixPath)
+	logrus.Info("Nix store backend enabled, using mapping file: ", imagesJSONPath)
 
-	return &Manager{nixPath: nixPath, imagesNixPath: imagesNixPath}, nil
+	return &Manager{imagesJSONPath: imagesJSONPath}, nil
 }
 
 // IsEnabled returns whether Nix store backend is enabled
 func (m *Manager) IsEnabled() bool {
-	return m.nixPath != "" && m.imagesNixPath != ""
+	return m.imagesJSONPath != ""
+}
+
+// ImageEntry represents the mapping from image names to Nix store paths
+type ImageEntry struct {
+	Rootfs   string `json:"rootfs"`
+	Manifest string `json:"manifest"`
+	Config   string `json:"config"`
+}
+
+type ImageMapping struct {
+	Images map[string]ImageEntry `json:"images"`
 }
 
 // ResolveImage resolves an image name to its Nix store path
-func (m *Manager) ResolveImage(ctx context.Context, imageName string) (string, error) {
+func (m *Manager) ResolveImage(ctx context.Context, imageName string) (ImageEntry, error) {
 	if !m.IsEnabled() {
-		return "", fmt.Errorf("Nix store backend is not enabled")
+		return ImageEntry{}, fmt.Errorf("Nix store backend is not enabled")
 	}
 
-	logrus.Infof("Resolving image %s using nix", imageName)
+	logrus.Infof("Resolving image %s using mapping file", imageName)
+
+	// Read the mapping file
+	data, err := os.ReadFile(m.imagesJSONPath)
+	if err != nil {
+		return ImageEntry{}, fmt.Errorf("failed to read images.json: %w", err)
+	}
+
+	// Unmarshal the JSON
+	var mapping ImageMapping
+	if err := json.Unmarshal(data, &mapping); err != nil {
+		return ImageEntry{}, fmt.Errorf("failed to unmarshal images.json: %w", err)
+	}
 
 	// The expression to evaluate, which imports the images file, selects the attribute, and pulls the image
 	imageAttr := imageName
@@ -76,23 +89,12 @@ func (m *Manager) ResolveImage(ctx context.Context, imageName string) (string, e
 	} else if strings.HasPrefix(imageName, "nix/") {
 		imageAttr = strings.TrimPrefix(imageName, "nix/")
 	}
-	nixExpr := fmt.Sprintf("with import <nixpkgs> {}; (pkgs.dockerTools.pullImage ((import %s).%s))", m.imagesNixPath, imageAttr)
 
-	cmd := exec.CommandContext(ctx, m.nixPath, "build", "--impure", "--expr", nixExpr, "--print-out-paths")
-
-	logrus.Debugf("Running: %s", cmd.String())
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("nix build failed for image %q: %w, output: %s", imageName, err, string(output))
+	// Look up the image in the mapping
+	entry, ok := mapping.Images[imageAttr]
+	if !ok {
+		return ImageEntry{}, fmt.Errorf("image %q not found in images.json", imageAttr)
 	}
 
-	storePath := strings.TrimSpace(string(output))
-	if storePath == "" {
-		return "", fmt.Errorf("nix build for image %q produced an empty store path", imageName)
-	}
-
-	// nix build can print other things to stdout, so we take the last line
-	lines := strings.Split(storePath, "\n")
-	return lines[len(lines)-1], nil
+	return entry, nil
 }

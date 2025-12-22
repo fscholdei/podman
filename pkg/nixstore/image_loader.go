@@ -3,6 +3,7 @@ package nixstore
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -29,18 +30,13 @@ func (l *ImageLoader) IsEnabled() bool {
 	return l.manager != nil && l.manager.IsEnabled()
 }
 
-// ResolveImage resolves an image name to its Nix store path
-func (l *ImageLoader) ResolveImage(ctx context.Context, imageName string) (string, error) {
-	return l.manager.ResolveImage(ctx, imageName)
-}
-
 // LoadImage loads an image from the Nix store into Podman's storage
-func (l *ImageLoader) LoadImage(ctx context.Context, imageName, storePath string) (*libimage.Image, error) {
+func (l *ImageLoader) LoadImage(ctx context.Context, imageName string, entry ImageEntry) (*libimage.Image, error) {
 	if !l.IsEnabled() {
 		return nil, fmt.Errorf("Nix store backend is not enabled")
 	}
 
-	logrus.Infof("Loading image %s from Nix store path %s", imageName, storePath)
+	logrus.Infof("Loading image %s from Nix store rootfs %s", imageName, entry.Rootfs)
 
 	imageRuntime, err := libimage.RuntimeFromStore(l.store, &libimage.RuntimeOptions{})
 	if err != nil {
@@ -48,12 +44,13 @@ func (l *ImageLoader) LoadImage(ctx context.Context, imageName, storePath string
 	}
 
 	loadOptions := &libimage.LoadOptions{}
-	ids, err := imageRuntime.Load(ctx, storePath, loadOptions)
+	// Load from the directory containing the manifest, which should have the correct structure.
+	ids, err := imageRuntime.Load(ctx, filepath.Dir(entry.Manifest), loadOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load image from directory into storage: %w", err)
 	}
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("no image loaded from Nix store path %s", storePath)
+		return nil, fmt.Errorf("no image loaded from Nix store rootfs %s", entry.Rootfs)
 	}
 
 	// Find the loaded image by ID
@@ -87,19 +84,14 @@ func (l *ImageLoader) TryLoadFromNixStore(ctx context.Context, imageName string)
 
 	logrus.Infof("Attempting to load image %s from Nix store", imageName)
 
-	// Instead of PrefetchImage, use ResolveImage to get the store path
-	storePath, err := l.manager.ResolveImage(ctx, imageName)
+	entry, err := l.manager.ResolveImage(ctx, imageName)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve image from Nix store: %w", err)
 	}
-	if storePath == "" {
-		return "", fmt.Errorf("no Nix store path found for image %s", imageName)
-	}
 
-	// Load the image from the store path into Podman's storage
-	loadedImage, err := l.LoadImage(ctx, imageName, storePath)
+	loadedImage, err := l.LoadImage(ctx, imageName, entry)
 	if err != nil {
-		return "", fmt.Errorf("failed to load image from Nix store path %s: %w", storePath, err)
+		return "", fmt.Errorf("failed to load image from Nix store rootfs %s: %w", entry.Rootfs, err)
 	}
 
 	// The image is now loaded and tagged. We need to return one of its names.
@@ -117,3 +109,22 @@ func (l *ImageLoader) TryLoadFromNixStore(ctx context.Context, imageName string)
 
 	return "", fmt.Errorf("loaded image %s has no names", loadedImage.ID())
 }
+
+// Accepts rootfs, manifest, and config paths
+// This function is now obsolete since ManifestPath/ConfigPath are not supported
+// func LoadImageFromNixStore(ctx context.Context, entry ImageEntry) error {
+// 	loadOptions := &libimage.LoadOptions{
+// 		ManifestPath: entry.Manifest,
+// 		ConfigPath:   entry.Config,
+// 	}
+//
+// 	// Use the rootfs as the directory to load from
+// 	image, err := libimage.Load(ctx, entry.Rootfs, loadOptions)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to load image from Nix store: %w", err)
+// 	}
+//
+// 	// Handle the loaded image as needed
+// 	_ = image // Use image as needed
+// 	return nil
+// }

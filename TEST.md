@@ -17,3 +17,12 @@ Suche nach `spec.Mount`:
 * Linux-Defaults `/proc`, `/dev`, `/dev/{pts,shm,mqueue}`, `/sys` in `runtime-tools/generate/generate.go`
 * Dann Podman-Tweaks `/sys`, `/sys/fs/cgroup`, `/dev/{pts,mqueue}`, `/proc` in `pkg/specgen/generate/oci_linux.go`
 * Sowie Image-Volumes und `tmpfs` in `storage.go`, (`specgen.go`, `podmanspecgen.go`) 
+
+
+The nixbld group is used by Nix to run builds in a sandboxed environment.
+This typically happens on non-NixOS systems if Nix is not fully configured. To fix this, you need to create the nixbld group on your system.
+You can do this by running the following command in your terminal:
+sudo groupadd --system nixbld
+
+
+sudo usermod -aG nixbld flo
