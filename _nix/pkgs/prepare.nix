@@ -13,13 +13,13 @@ dirname: inputs: {
           finalImageName = "python";
           finalImageTag = "3.10.6-alpine";
         };
-#        hello-world = { arch = "amd64"; os = "linux"; } // {
-#          imageName = "hello-world";
-#          imageDigest = "sha256:6dc565aa630927052111f823c303948cf83670a3903ffa3849f1488ab517f891";
-#          hash = "sha256-kclFt+m19RWucr8o1QxlCxH1SH7DMoS6H+lsIGFUwLY=";
-#          finalImageName = "hello-world";
-#          finalImageTag = "latest";
-#        };
+        hello-world = { arch = "amd64"; os = "linux"; } // {
+          imageName = "hello-world";
+          imageDigest = "sha256:6dc565aa630927052111f823c303948cf83670a3903ffa3849f1488ab517f891";
+          hash = "sha256-kclFt+m19RWucr8o1QxlCxH1SH7DMoS6H+lsIGFUwLY=";
+          finalImageName = "hello-world";
+          finalImageTag = "latest";
+        };
 #        php = { arch = "amd64"; os = "linux"; } // {
 #          imageName = "php";
 #          imageDigest = "sha256:277cad196d7bcc9120e111b94ded8bfb8b9f9f88ebeebf6fd8bec2dd6ba03122";
@@ -27,13 +27,13 @@ dirname: inputs: {
 #          finalImageName = "php";
 #          finalImageTag = "latest";
 #        };
-#        tomcat = { arch = "amd64"; os = "linux"; } // {
-#          imageName = "tomcat";
-#          imageDigest = "sha256:1fb0037abb88abb3ff2fbeb40056f82f616522a92f1f4f7dc0b56cdb157542db";
-#          hash = "sha256-FAEn/msK3Ds4ecr7Z2YqJ+WBpD2tmBiOco4S7+Qc+vI=";
-#          finalImageName = "tomcat";
-#          finalImageTag = "latest";
-#        };
+        tomcat = { arch = "amd64"; os = "linux"; } // {
+          imageName = "tomcat";
+          imageDigest = "sha256:1fb0037abb88abb3ff2fbeb40056f82f616522a92f1f4f7dc0b56cdb157542db";
+          hash = "sha256-FAEn/msK3Ds4ecr7Z2YqJ+WBpD2tmBiOco4S7+Qc+vI=";
+          finalImageName = "tomcat";
+          finalImageTag = "latest";
+        };
 #        nextcloud = { arch = "amd64"; os = "linux"; } // {
 #          imageName = "nextcloud";
 #          imageDigest = "sha256:f9bec5c77a8d5603354b990550a4d24487deae6e589dd20ce870e43e28460e18";
@@ -50,11 +50,8 @@ dirname: inputs: {
 #          finalImageTag = "latest";
 #        };
     };
-#    imageOut = lib.mapAttrs (_: image: image.out) imageDerivations;
-#    imageInfo = lib.mapAttrs (_: image: image.info) imageDerivations;
-#    imageNames = lib.mapAttrs (_: image: "${image.finalImageName}:${image.finalImageTag}") imageDerivations;
-    imageInfo = lib.mapAttrsToList (name: value: "${value.finalImageName}:${value.finalImageTag} to ${value.out}") imageDerivations;
-
-in writeShellScriptBin "test" ''
-    >&2 echo "Done preparing docker images: ${lib.concatStringsSep ",\n" imageInfo}"
+    imagePaths = lib.mapAttrs (_: image: image.out) imageDerivations;
+    jsonOutput = builtins.toJSON { images = imagePaths; };
+in writeShellScriptBin "prepare-images" ''
+  echo "${jsonOutput}"
 ''
