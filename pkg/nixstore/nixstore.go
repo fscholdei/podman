@@ -1,7 +1,6 @@
 package nixstore
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -51,49 +50,59 @@ func (m *Manager) IsEnabled() bool {
 	return m.imagesJSONPath != ""
 }
 
-// ImageEntry represents the mapping from image names to Nix store paths
-type ImageEntry struct {
-	Rootfs   string `json:"rootfs"`
-	Manifest string `json:"manifest"`
-	Config   string `json:"config"`
-}
-
-type ImageMapping struct {
-	Images map[string]ImageEntry `json:"images"`
-}
+type ImageEntry string
 
 // ResolveImage resolves an image name to its Nix store path
-func (m *Manager) ResolveImage(ctx context.Context, imageName string) (ImageEntry, error) {
+func (m *Manager) ResolveImage(imageName string) (ImageEntry, error) {
 	if !m.IsEnabled() {
-		return ImageEntry{}, fmt.Errorf("Nix store backend is not enabled")
+		return "", fmt.Errorf("Nix store backend is not enabled")
 	}
 
 	logrus.Infof("Resolving image %s using mapping file", imageName)
 
-	// Read the mapping file
 	data, err := os.ReadFile(m.imagesJSONPath)
 	if err != nil {
-		return ImageEntry{}, fmt.Errorf("failed to read images.json: %w", err)
+		return "", fmt.Errorf("failed to read images.json: %w", err)
 	}
 
-	// Unmarshal the JSON
-	var mapping ImageMapping
-	if err := json.Unmarshal(data, &mapping); err != nil {
-		return ImageEntry{}, fmt.Errorf("failed to unmarshal images.json: %w", err)
+	var rawMapping map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawMapping); err != nil {
+		return "", fmt.Errorf("failed to unmarshal images.json: %w", err)
 	}
 
-	// The expression to evaluate, which imports the images file, selects the attribute, and pulls the image
-	imageAttr := imageName
-	if strings.HasPrefix(imageName, "localhost/") {
-		imageAttr = strings.TrimPrefix(imageName, "localhost/")
-	} else if strings.HasPrefix(imageName, "nix/") {
-		imageAttr = strings.TrimPrefix(imageName, "nix/")
-	}
-
-	// Look up the image in the mapping
-	entry, ok := mapping.Images[imageAttr]
+	rawImages, ok := rawMapping["images"]
 	if !ok {
-		return ImageEntry{}, fmt.Errorf("image %q not found in images.json", imageAttr)
+		return "", fmt.Errorf(`"images" key not found in images.json`)
+	}
+
+	var images map[string]json.RawMessage
+	if err := json.Unmarshal(rawImages, &images); err != nil {
+		return "", fmt.Errorf("failed to unmarshal images in images.json: %w", err)
+	}
+
+	imageEntries := make(map[string]ImageEntry)
+	for name, rawEntry := range images {
+		var path string
+		if err := json.Unmarshal(rawEntry, &path); err == nil {
+			imageEntries[name] = ImageEntry(path)
+			continue
+		}
+
+		var structured struct {
+			Rootfs string `json:"rootfs"`
+		}
+		if err := json.Unmarshal(rawEntry, &structured); err != nil {
+			return "", fmt.Errorf("cannot unmarshal image entry %q from %q", name, string(rawEntry))
+		}
+		imageEntries[name] = ImageEntry(structured.Rootfs)
+	}
+
+	imageAttr := strings.TrimPrefix(imageName, "localhost/")
+	imageAttr = strings.TrimPrefix(imageAttr, "nix/")
+
+	entry, ok := imageEntries[imageAttr]
+	if !ok {
+		return "", fmt.Errorf("image %q not found in images.json", imageAttr)
 	}
 
 	return entry, nil
