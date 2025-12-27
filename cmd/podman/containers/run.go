@@ -146,13 +146,10 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	imageName := args[0]
-	//if !strings.Contains(imageName, "/") {
-	//	imageName = "localhost/" + imageName
-	//}
 	rawImageName := ""
 	if !cliVals.RootFS {
 		rawImageName = args[0]
-		name, err := pullImage(cmd, imageName, &cliVals)
+		name, err := pullImage(cmd, args[0], &cliVals)
 		if err != nil {
 			return err
 		}

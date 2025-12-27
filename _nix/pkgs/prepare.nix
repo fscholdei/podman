@@ -20,13 +20,13 @@ dirname: inputs: {
           finalImageName = "hello-world";
           finalImageTag = "latest";
         };
-#        php = { arch = "amd64"; os = "linux"; } // {
-#          imageName = "php";
-#          imageDigest = "sha256:277cad196d7bcc9120e111b94ded8bfb8b9f9f88ebeebf6fd8bec2dd6ba03122";
-#          hash = "sha256-YERyqIw6IGx3zQ+OBQz/EQ/PGqNdzVdlHnYOrSjdXzU=";
-#          finalImageName = "php";
-#          finalImageTag = "latest";
-#        };
+        php = { arch = "amd64"; os = "linux"; } // {
+          imageName = "php";
+          imageDigest = "sha256:277cad196d7bcc9120e111b94ded8bfb8b9f9f88ebeebf6fd8bec2dd6ba03122";
+          hash = "sha256-YERyqIw6IGx3zQ+OBQz/EQ/PGqNdzVdlHnYOrSjdXzU=";
+          finalImageName = "php";
+          finalImageTag = "latest";
+        };
         tomcat = { arch = "amd64"; os = "linux"; } // {
           imageName = "tomcat";
           imageDigest = "sha256:1fb0037abb88abb3ff2fbeb40056f82f616522a92f1f4f7dc0b56cdb157542db";
@@ -34,21 +34,21 @@ dirname: inputs: {
           finalImageName = "tomcat";
           finalImageTag = "latest";
         };
-#        nextcloud = { arch = "amd64"; os = "linux"; } // {
-#          imageName = "nextcloud";
-#          imageDigest = "sha256:f9bec5c77a8d5603354b990550a4d24487deae6e589dd20ce870e43e28460e18";
-#          hash = "sha256-KkUy9S7Zd8Z1AxVB8fSSGkeSWO/yYysdfK14mPB9d/o=";
-#          finalImageName = "nextcloud";
-#          finalImageTag = "latest";
-#        };
-#        python-numpy = { arch = "amd64"; os = "linux"; } // {
-#          imageName = "quoinedev/python3.7-pandas-alpine";
-#          imageDigest = "sha256:1be9b10c0ce3daf62589b0fabcc2585372eaad4783c74d08bcb137142d52c9ea";
-#          hash = "sha256-qhZZfICVjU9+4p+VghuPA09n/KE2CHKmRsNXNnZZQCc=";
-##          finalImageName = "quoinedev/python3.7-pandas-alpine";
-#          finalImageName = "docker.io/quoinedev/python3.7-pandas-alpine";
-#          finalImageTag = "latest";
-#        };
+        nextcloud = { arch = "amd64"; os = "linux"; } // {
+          imageName = "nextcloud";
+          imageDigest = "sha256:f9bec5c77a8d5603354b990550a4d24487deae6e589dd20ce870e43e28460e18";
+          hash = "sha256-KkUy9S7Zd8Z1AxVB8fSSGkeSWO/yYysdfK14mPB9d/o=";
+          finalImageName = "nextcloud";
+          finalImageTag = "latest";
+        };
+        python-numpy = { arch = "amd64"; os = "linux"; } // {
+          imageName = "quoinedev/python3.7-pandas-alpine";
+          imageDigest = "sha256:1be9b10c0ce3daf62589b0fabcc2585372eaad4783c74d08bcb137142d52c9ea";
+          hash = "sha256-qhZZfICVjU9+4p+VghuPA09n/KE2CHKmRsNXNnZZQCc=";
+#          finalImageName = "quoinedev/python3.7-pandas-alpine";
+          finalImageName = "docker.io/quoinedev/python3.7-pandas-alpine";
+          finalImageTag = "latest";
+        };
     };
     imagePaths = lib.mapAttrs (_: image: image.out) imageDerivations;
     jsonOutput = builtins.toJSON { images = imagePaths; };
