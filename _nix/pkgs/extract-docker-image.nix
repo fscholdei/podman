@@ -41,32 +41,46 @@ in runCommandLocal name {
         chmod -R +w $out
     done
 
-    # Create some standard directories that might be expected.
-    # much ugly
-    mkdir -p -m1777 $out/tmp
-    mkdir -p -m755 $out/nix
-
-
     # --- Populate the "info" output ---
     mkdir -p $info
 
-    # Generate OCI-compliant manifest
-    config_file_name=$config
+    # Make tar archive out of $out and save it in info dir
+    tar -C $out -cf $info/rootfs.tar .
+
+    # Calculate the DiffID of the new layer (sha256 of uncompressed tarball)
+    diff_id_sha256=$(sha256sum "$info/rootfs.tar" | cut -d' ' -f1)
+
+    # Create a new config file with the correct DiffID and cleared history
+    updated_config_json=$(${jq}/bin/jq \
+      --arg diff_id "sha256:$diff_id_sha256" \
+      --arg created "$(date --iso-8601=seconds --utc)" \
+      '.rootfs.diff_ids = [$diff_id] | .history = [{"created": $created, "created_by": "nix"}] | .created = $created' \
+      "$config")
+    echo "$updated_config_json" > "$info/config.json"
+
+    # Generate OCI-compliant manifest using the new config
+    config_file_name="$info/config.json"
     config_sha256=$(sha256sum "$config_file_name" | cut -d' ' -f1)
     config_size=$(stat -c%s "$config_file_name")
 
     # Copy config file to info output, named by its digest
     cp "$config_file_name" "$info/$config_sha256"
 
-    # Generate layers JSON and copy layers
-    layers_json="[]"
-    for layer in "''${layers[@]}"; do
-        layer_digest_hash="$(sha256sum "$layer" | cut -d' ' -f1)"
-        layer_digest_full="sha256:$layer_digest_hash"
-        layer_size=$(stat -c%s "$layer")
-        layers_json=$(echo "$layers_json" | ${jq}/bin/jq --argjson size "$layer_size" --arg digest "$layer_digest_full" '. + [{mediaType: "application/vnd.oci.image.layer.v1.tar+gzip", digest: $digest, size: $size}]')
-        cp "$layer" "$info/$layer_digest_hash"
-    done
+    # Generate layers JSON for the rootfs tarball
+    layer_path="$info/rootfs.tar"
+    layer_digest_hash="$(sha256sum "$layer_path" | cut -d' ' -f1)"
+    layer_digest_full="sha256:$layer_digest_hash"
+    layer_size=$(stat -c%s "$layer_path")
+    layers_json=$( ${jq}/bin/jq -n \
+        --argjson size "$layer_size" \
+        --arg digest "$layer_digest_full" \
+        '[{
+            "mediaType": "application/vnd.oci.image.layer.v1.tar",
+            "digest": $digest,
+            "size": $size
+        }]'
+    )
+    mv "$layer_path" "$info/$layer_digest_hash"
 
     # Assemble the final manifest
     ${jq}/bin/jq -n \
@@ -83,6 +97,4 @@ in runCommandLocal name {
         },
         "layers": $layers
       }' > "$info/manifest.json"
-
-      stat --printf='%s\t%n\n' "''${layers[@]}" | LC_ALL=C sort -k2 > $info/layers
 ''
