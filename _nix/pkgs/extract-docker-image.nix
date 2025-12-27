@@ -15,7 +15,8 @@ in runCommandLocal name {
     tar -xf $image
     ls -al .
     # Extract layer tarball names from manifest.json
-    layers=( $( ${jq}/bin/jq -r '.[0].Layers|.[]' manifest.json ) )
+    layers=( $( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Layers|.[]' manifest.json ) )
+    config=$( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Config' manifest.json )
     mkdir -p $out
     # Process layers in order
     for layer in "''${layers[@]}" ; do
@@ -48,11 +49,38 @@ in runCommandLocal name {
 
     # --- Populate the "info" output ---
     mkdir -p $info
-    # Copy the main manifest file.
-    ${jq}/bin/jq '.[0]' manifest.json > $info/manifest.json
-    # Copy the image config file.
-    config=$( ${jq}/bin/jq -r '.[0].Config' manifest.json || true )
-    [[ ! $config ]] || cp ./"$config" $info/config.json
-    # Create a file with layer sizes and names.
-    stat --printf='%s\t%n\n' "''${layers[@]}" | LC_ALL=C sort -k2 > $info/layers
+
+    # Generate OCI-compliant manifest
+    config_file_name=$config
+    config_sha256=$(sha256sum "$config_file_name" | cut -d' ' -f1)
+    config_size=$(stat -c%s "$config_file_name")
+
+    # Copy config file to info output, named by its digest
+    cp "$config_file_name" "$info/$config_sha256"
+
+    # Generate layers JSON and copy layers
+    layers_json="[]"
+    for layer in "''${layers[@]}"; do
+        layer_digest_hash="$(sha256sum "$layer" | cut -d' ' -f1)"
+        layer_digest_full="sha256:$layer_digest_hash"
+        layer_size=$(stat -c%s "$layer")
+        layers_json=$(echo "$layers_json" | ${jq}/bin/jq --argjson size "$layer_size" --arg digest "$layer_digest_full" '. + [{mediaType: "application/vnd.oci.image.layer.v1.tar+gzip", digest: $digest, size: $size}]')
+        cp "$layer" "$info/$layer_digest_hash"
+    done
+
+    # Assemble the final manifest
+    ${jq}/bin/jq -n \
+      --argjson config_size "$config_size" \
+      --arg config "sha256:$config_sha256" \
+      --argjson layers "$layers_json" \
+      '{
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+          "mediaType": "application/vnd.oci.image.config.v1+json",
+          "digest": $config,
+          "size": $config_size
+        },
+        "layers": $layers
+      }' > "$info/manifest.json"
 ''
