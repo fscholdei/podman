@@ -83,4 +83,6 @@ in runCommandLocal name {
         },
         "layers": $layers
       }' > "$info/manifest.json"
+
+      stat --printf='%s\t%n\n' "''${layers[@]}" | LC_ALL=C sort -k2 > $info/layers
 ''
