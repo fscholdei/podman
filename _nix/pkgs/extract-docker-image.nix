@@ -9,14 +9,15 @@ lib }: image: let # result of pkgs.dockerTools.pullImage
 
 in runCommandLocal name {
     inherit image; outputs = [ "out" ];
+    jq = "${jq}/bin/jq";
 } ''
     set -x
     # Unpack the image tarball provided by dockerTools.pullImage
     tar -xf $image
     ls -al .
     # Extract layer tarball names from manifest.json
-    layers=( $( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Layers|.[]' manifest.json ) )
-    config=$( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Config' manifest.json )
+    layers=( $( $jq -r 'if type == "array" then .[0] else . end | .Layers|.[]' manifest.json ) )
+    config=$( $jq -r 'if type == "array" then .[0] else . end | .Config' manifest.json )
     tmp_out=$(mktemp -d)
     # Process layers in order
     for layer in "''${layers[@]}" ; do
@@ -51,7 +52,7 @@ in runCommandLocal name {
     diff_id_sha256=$(sha256sum "$out/rootfs.tar" | cut -d' ' -f1)
 
     # Create a new config file with the correct DiffID and cleared history
-    updated_config_json=$(${jq}/bin/jq \
+    updated_config_json=$( $jq \
       --arg diff_id "sha256:$diff_id_sha256" \
       --arg created "$(date -Iseconds --utc)" \
       ' .rootfs.diff_ids = [$diff_id] | .history = [{"created": $created, "created_by": "nix", "comment": "Unpacked file trees"}] | .created = $created' \
@@ -71,7 +72,7 @@ in runCommandLocal name {
     layer_digest_hash="$(sha256sum "$layer_path" | cut -d' ' -f1)"
     layer_digest_full="sha256:$layer_digest_hash"
     layer_size=$(stat -c%s "$layer_path")
-    layers_json=$( ${jq}/bin/jq -n \
+    layers_json=$( $jq -n \
         --argjson size "$layer_size" \
         --arg digest "$layer_digest_full" \
         '[{
@@ -83,7 +84,7 @@ in runCommandLocal name {
     mv "$layer_path" "$out/$layer_digest_hash"
 
     # Assemble the final manifest
-    ${jq}/bin/jq -n \
+    $jq -n \
       --argjson config_size "$config_size" \
       --arg config "sha256:$config_sha256" \
       --argjson layers "$layers_json" \
