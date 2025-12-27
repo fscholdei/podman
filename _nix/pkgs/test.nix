@@ -2,7 +2,7 @@ dirname: inputs: {
     writeShellScriptBin, writeShellScript, dockerTools, extract-docker-image,
 }: let
     lib = inputs.self.lib.__internal__;
-    images = lib.mapAttrs (name: imageAttrs: (extract-docker-image (dockerTools.pullImage imageAttrs)) // {
+    imageDerivations = lib.mapAttrs (name: imageAttrs: (extract-docker-image (dockerTools.pullImage imageAttrs)) // {
       inherit (imageAttrs) finalImageName finalImageTag;
     }) {
         # use `nix-prefetch-docker --os linux <image>` to get these:
@@ -50,9 +50,11 @@ dirname: inputs: {
           finalImageTag = "latest";
         };
     };
-    imageNames = lib.mapAttrs (_: image: "${image.finalImageName}:${image.finalImageTag}") images;
-    infos = lib.mapAttrs (_: image: image.info) images;
+    images = lib.mapAttrs (_: image: image.out) imageDerivations;
+    imageNames = lib.mapAttrs (_: image: "${image.finalImageName}:${image.finalImageTag}") imageDerivations;
+    infos = lib.mapAttrs (_: image: image.info) imageDerivations;
+    imageInfo = lib.mapAttrsToList (name: value: "${value.finalImageName}:${value.finalImageTag} to ${value.out}") imageDerivations;
 
 in writeShellScriptBin "test" ''
-    >&2 echo "Done preparing docker images: ${lib.concatStringsSep ", " (lib.attrValues imageNames)}"
+    >&2 echo "Done preparing docker images: ${lib.concatStringsSep ",\n" imageInfo}"
 ''
