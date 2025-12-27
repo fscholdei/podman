@@ -53,8 +53,8 @@ in runCommandLocal name {
     # Create a new config file with the correct DiffID and cleared history
     updated_config_json=$(${jq}/bin/jq \
       --arg diff_id "sha256:$diff_id_sha256" \
-      --arg created "$(date --iso-8601=seconds --utc)" \
-      '.rootfs.diff_ids = [$diff_id] | .history = [{"created": $created, "created_by": "nix"}] | .created = $created' \
+      --arg created "$(date -Iseconds --utc)" \
+      ' .rootfs.diff_ids = [$diff_id] | .history = [{"created": $created, "created_by": "nix", "comment": "Unpacked file trees"}] | .created = $created' \
       "$config")
     echo "$updated_config_json" > "$info/config.json"
 
