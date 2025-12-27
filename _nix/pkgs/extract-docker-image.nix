@@ -1,7 +1,7 @@
-# This function extracts the contents of a Docker image tarball.
-# It takes an image path (as produced by pkgs.dockerTools.pullImage)
-# and produces a directory with the merged filesystem of all layers.
-# It also produces an "info" output with metadata about the image.
+# This function extracts the contents of a Docker image tarball,
+# squashes them into a single layer, and creates a new OCI-compliant
+# image from it.
+# It takes an image path as produced by `pkgs.dockerTools.pullImage`.
 dirname: inputs: {
     runCommandLocal, jq,
 lib }: image: let # result of pkgs.dockerTools.pullImage
