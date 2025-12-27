@@ -15,9 +15,11 @@ in runCommandLocal name {
     # Unpack the image tarball provided by dockerTools.pullImage
     tar -xf $image
     ls -al .
-    # Extract layer tarball names from manifest.json
-    layers=( $( $jq -r 'if type == "array" then .[0] else . end | .Layers|.[]' manifest.json ) )
-    config=$( $jq -r 'if type == "array" then .[0] else . end | .Config' manifest.json )
+    # Extract layer tarball names and config from manifest.json
+    eval $($jq -r '
+      if type == "array" then .[0] else . end
+      | "layers=(\(.Layers|map(select(. != null))|join(" "))) config=\(.Config)"
+    ' manifest.json)
     tmp_out=$(mktemp -d)
     # Process layers in order
     for layer in "''${layers[@]}" ; do
