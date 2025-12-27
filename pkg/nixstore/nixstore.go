@@ -36,8 +36,7 @@ func NewManager() (*Manager, error) {
 	}
 
 	if imagesJSONPath == "" {
-		logrus.Info("images.json not found, Nix store backend is disabled.")
-		return &Manager{}, nil
+		return nil, fmt.Errorf("images.json not found, Nix store backend is disabled")
 	}
 
 	logrus.Info("Nix store backend enabled, using mapping file: ", imagesJSONPath)

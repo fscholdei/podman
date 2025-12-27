@@ -930,13 +930,12 @@ func (r *Runtime) configureStore() error {
 	// Initialize Nix store manager if enabled
 	nixManager, err := nixstore.NewManager()
 	if err != nil {
-		logrus.Warnf("Failed to initialize Nix store manager: %v", err)
-	} else {
-		r.nixStoreManager = nixManager
-		if nixManager.IsEnabled() {
-			r.nixImageLoader = nixstore.NewImageLoader(nixManager, store)
-			logrus.Info("Nix store integration enabled")
-		}
+		return fmt.Errorf("failed to initialize Nix store manager: %w", err)
+	}
+	r.nixStoreManager = nixManager
+	if nixManager.IsEnabled() {
+		r.nixImageLoader = nixstore.NewImageLoader(nixManager, store)
+		logrus.Info("Nix store integration enabled")
 	}
 
 	return nil
