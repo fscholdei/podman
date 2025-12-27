@@ -63,8 +63,8 @@ in runCommandLocal name {
     config_sha256=$(sha256sum "$config_file_name" | cut -d' ' -f1)
     config_size=$(stat -c%s "$config_file_name")
 
-    # Copy config file to info output, named by its digest
-    cp "$config_file_name" "$info/$config_sha256"
+    # Move config file to info output, named by its digest
+    mv "$config_file_name" "$info/$config_sha256"
 
     # Generate layers JSON for the rootfs tarball
     layer_path="$info/rootfs.tar"
