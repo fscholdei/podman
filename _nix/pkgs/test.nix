@@ -53,7 +53,7 @@ dirname: inputs: {
 #    imageOut = lib.mapAttrs (_: image: image.out) imageDerivations;
 #    imageInfo = lib.mapAttrs (_: image: image.info) imageDerivations;
 #    imageNames = lib.mapAttrs (_: image: "${image.finalImageName}:${image.finalImageTag}") imageDerivations;
-    imageInfo = lib.mapAttrsToList (name: value: "${value.finalImageName}:${value.finalImageTag} to ${value.info}") imageDerivations;
+    imageInfo = lib.mapAttrsToList (name: value: "${value.finalImageName}:${value.finalImageTag} to ${value.out}") imageDerivations;
 
 in writeShellScriptBin "test" ''
     >&2 echo "Done preparing docker images: ${lib.concatStringsSep ",\n" imageInfo}"

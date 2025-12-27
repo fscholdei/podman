@@ -8,7 +8,7 @@ lib }: image: let # result of pkgs.dockerTools.pullImage
     name = if lib.isString image then "container-image" else "docker-image-${image.imageName}-${image.imageTag}";
 
 in runCommandLocal name {
-    inherit image; outputs = [ "out" "info" ];
+    inherit image; outputs = [ "out" ];
 } ''
     set -x
     # Unpack the image tarball provided by dockerTools.pullImage
@@ -17,7 +17,7 @@ in runCommandLocal name {
     # Extract layer tarball names from manifest.json
     layers=( $( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Layers|.[]' manifest.json ) )
     config=$( ${jq}/bin/jq -r 'if type == "array" then .[0] else . end | .Config' manifest.json )
-    mkdir -p $out
+    tmp_out=$(mktemp -d)
     # Process layers in order
     for layer in "''${layers[@]}" ; do
         # First, process whiteout files to remove deleted files from previous layers.
@@ -25,30 +25,30 @@ in runCommandLocal name {
         tar --anchored --exclude='dev/*' -tf $layer | ( grep -Pe '(^|/)[.]wh[.]' || true ) | while IFS= read -r path ; do
             if [[ $path == */.wh..wh..opq ]] ; then
                 # Opaque whiteout: remove all files in the directory
-                ( shopt -s dotglob ; rm -rf $out/"''${path%%.wh..wh..opq}"/* )
+                ( shopt -s dotglob ; rm -rf $tmp_out/"''${path%%.wh..wh..opq}"/* )
             else
                 # Regular whiteout: remove a single file
-                name=$( basename "$path" ) ; rm -rf $out/"$( dirname "$path" )"/''${name##.wh.}
+                name=$( basename "$path" ) ; rm -rf $tmp_out/"$( dirname "$path" )"/''${name##.wh.}
             fi
         done
         # Then, extract the layer contents into the output directory.
         # We also remove the whiteout files themselves during extraction.
-        tar --anchored --exclude='dev/*' -C $out -xf $layer -v |
+        tar --anchored --exclude='dev/*' -C $tmp_out -xf $layer -v |
         ( grep -Pe '(^|/)[.]wh[.]' || true ) | while IFS= read -r path ; do
-            name=$( basename "$path" ) ; rm -rf $out/"$path"
+            name=$( basename "$path" ) ; rm -rf $tmp_out/"$path"
         done
         # Make all extracted files writable.
-        chmod -R +w $out
+        chmod -R +w $tmp_out
     done
 
-    # --- Populate the "info" output ---
-    mkdir -p $info
+    # --- Populate the "out" output ---
+    mkdir -p $out
 
-    # Make tar archive out of $out and save it in info dir
-    tar -C $out -cf $info/rootfs.tar .
+    # Make tar archive out of $tmp_out and save it in out dir
+    tar -C $tmp_out -cf $out/rootfs.tar .
 
     # Calculate the DiffID of the new layer (sha256 of uncompressed tarball)
-    diff_id_sha256=$(sha256sum "$info/rootfs.tar" | cut -d' ' -f1)
+    diff_id_sha256=$(sha256sum "$out/rootfs.tar" | cut -d' ' -f1)
 
     # Create a new config file with the correct DiffID and cleared history
     updated_config_json=$(${jq}/bin/jq \
@@ -56,18 +56,18 @@ in runCommandLocal name {
       --arg created "$(date -Iseconds --utc)" \
       ' .rootfs.diff_ids = [$diff_id] | .history = [{"created": $created, "created_by": "nix", "comment": "Unpacked file trees"}] | .created = $created' \
       "$config")
-    echo "$updated_config_json" > "$info/config.json"
+    echo "$updated_config_json" > "$out/config.json"
 
     # Generate OCI-compliant manifest using the new config
-    config_file_name="$info/config.json"
+    config_file_name="$out/config.json"
     config_sha256=$(sha256sum "$config_file_name" | cut -d' ' -f1)
     config_size=$(stat -c%s "$config_file_name")
 
-    # Move config file to info output, named by its digest
-    mv "$config_file_name" "$info/$config_sha256"
+    # Move config file to out output, named by its digest
+    mv "$config_file_name" "$out/$config_sha256"
 
     # Generate layers JSON for the rootfs tarball
-    layer_path="$info/rootfs.tar"
+    layer_path="$out/rootfs.tar"
     layer_digest_hash="$(sha256sum "$layer_path" | cut -d' ' -f1)"
     layer_digest_full="sha256:$layer_digest_hash"
     layer_size=$(stat -c%s "$layer_path")
@@ -80,7 +80,7 @@ in runCommandLocal name {
             "size": $size
         }]'
     )
-    mv "$layer_path" "$info/$layer_digest_hash"
+    mv "$layer_path" "$out/$layer_digest_hash"
 
     # Assemble the final manifest
     ${jq}/bin/jq -n \
@@ -96,5 +96,5 @@ in runCommandLocal name {
           "size": $config_size
         },
         "layers": $layers
-      }' > "$info/manifest.json"
+      }' > "$out/manifest.json"
 ''
